@@ -46,92 +46,352 @@ class_diag <- function(score, truth, positive, cutoff=.5){
 
 # Mining, Classification, Prediction
 
-## Name and EID here
+## Alvaro Guevara ag58974
 
 ### Introduction 
 
-Paragraph or two introducing your datasets and variables, why they are interesting to you, etc. See instructions for more information
+The 'Backpack' dataset contains student survey results from a California Polytechnic State University. I chose this dataset for mining, classification, and prediction because of its focus on the physical health of college students and interesting variables which are useful for finding and uncovering different types of relationships. The data was collected to investigate whether students' back problems might be due to carrying heavy backpacks, as well as other factors. 
+
+The variables include 'BackpackWeight (in pounds)', 'BodyWeight (in pounds)', 'Ratio (Backpackweight/Bodyweight)', 'BackProblems (0=no, 1=yes)', 'Major', 'Year (in school)', 'Sex', 'Status (graduate or undergraduate)', and 'Units (number of credits taken)'. The dataset was readily available to use from the Stat2Data package in R. There are 100 total observations in the dataset. For the binary 'BackProblems' variable, there are 68 observations for the '0' group (no back problems), and 32 for the '1' group (back problems).
 
 ```{R}
 library(tidyverse)
-# read your datasets in here, e.g., with read_csv()
+library(dplyr)
 
-# if your dataset needs tidying, do so here
+# Read dataset
+library(Stat2Data)
+data(Backpack)
+Backpack <- Backpack
 
-# any other code here
+# Observations per group 
+Backpack %>% group_by(BackProblems) %>% summarize(n=n())
 ```
 
 ### Cluster Analysis
 
 ```{R}
 library(cluster)
-# clustering code here
+library(GGally)
+
+# Choose the number of clusters that maximizes average silhouette width
+pam_dat <- Backpack%>%select(1,2,6,9)
+sil_width<-vector()
+for(i in 2:10){
+  pam_fit <- pam(pam_dat, k = i)
+  sil_width[i] <- pam_fit$silinfo$avg.width
+}
+ggplot()+geom_line(aes(x=1:10,y=sil_width))+scale_x_continuous(name="k",breaks=1:10)
+
+# Running PAM
+set.seed(322) #just makes our output match
+backpack_pam <- pam_dat %>% pam(k=2) #use the pam function
+backpack_pam
+
+# Interpreting Average Silhouette Width
+backpack_pam$silinfo$avg.width
+plot(backpack_pam,which=2)
+
+# Plot every pairwise scatterplot using ggpairs
+Backpack %>% select(1,2,6,9) %>% 
+  mutate(cluster=as.factor(backpack_pam$clustering)) %>% 
+  ggpairs(columns = c("BackpackWeight","BodyWeight","Year","Units"), aes(color=cluster))
 ```
 
-Discussion of clustering here
+The number of clusters that are best to use and which maximize the average silhoutte width were determined to be 2. After running PAM, I found that the two medoids are student IDs 57 and 16. The two medoids are most similar on backpack weight and units. They are close in year. They are most different on body weight. After interpreting average silhoutte width, the cluster solution is found to be a reasonable structure since the average silhouette width of 0.53 falls between 0.51 and 0.70.
+
+Looking at the pairwise scatterplots, the 'BodyWeight' variable seems to show the greatest difference between the two clusters. The 'Backpack' variable seems to show the least difference between the two clusters. Looking at the density plots, cluster 1 (red), it is lower in body weight and higher in units. When looking at cluster 2 (blue), it is higher in body weight and lower in units. The density plots for the two clusters are about the same for backpack weight and year.
     
     
 ### Dimensionality Reduction with PCA
 
 ```{R}
-# PCA code here
+# PCA
+backpack_nums <- Backpack %>% select(1,2,6,9) %>% scale
+backpack_pca <- princomp(backpack_nums, cor=T)
+
+# Get PCA summary
+summary(backpack_pca, loadings=T)
+
+# Scree plot
+eigval <-  backpack_pca$sdev^2 #square to convert SDs to eigenvalues
+varprop=round(eigval/sum(eigval), 2) #proportion of var explained by each PC
+
+ggplot() + geom_bar(aes(y=varprop, x=1:4), stat="identity") + xlab("") + geom_path(aes(y=varprop, x=1:4)) + 
+  geom_text(aes(x=1:4, y=varprop, label=round(varprop, 2)), vjust=1, col="white", size=5) + 
+  scale_y_continuous(breaks=seq(0, .6, .2), labels = scales::percent) + 
+  scale_x_continuous(breaks=1:10)
+
+# Save the first two PCs in a dataframe
+backpackdf <-data.frame(PC1=backpack_pca$scores[, 1],PC2=backpack_pca$scores[, 2])
+
+# Plot them
+ggplot(backpackdf, aes(PC1, PC2)) + geom_point()
 ```
 
-Discussions of PCA here. 
+For Principal Component 1, it captures around 32% of the total variance in the 'Backpack' dataset/original variables. For PC 2, with the added 'proportion of variance' of 0.274, it captures around 59% of the total variance in the original variables. For PC 3, with a proportion of .254, it captures around 85% of the total variance in the original variables. 
+We can retain 3 PCs since the cumulative proportion variance is at 85%, which means it is enough so that it can summarize the total variability of the dataset.
+
+- For Comp 1., is a generalized measure of different factors for college students. It seems that backpack weights and body weights contribute positively, while year in school and units/credits contribute negatively.  
+- For Comp 2., backpack weight, body weight, and units all contribute positively. Body weight is uncorrelated. This means that the higher the backpack weight, the higher the year, and the higher the number of units taken.
+- For Comp 3., year contributes negatively, while units contribute positively. Backpack weight and body weight are uncorrelated. This means that the higher the units, the lower the year. The opposite is true, lower units but higher year.
 
 ###  Linear Classifier
 
 ```{R}
-# linear classifier code here
+# Predict back problems from all 5 numeric variables using logistic regression
+logistic_fit <- glm(BackProblems==1 ~ BackpackWeight + BodyWeight + Ratio + Year + Units, data=Backpack, family="binomial")
+
+# Generate predicted score/probabilities
+prob_reg <- predict(logistic_fit, type= "response")
+# Compute classification diagnostics
+class_diag(prob_reg, Backpack$BackProblems==1, positive=1)
+
+# Classification based on backpack weight
+y<-Backpack$BackProblems
+x<-Backpack$BackpackWeight
+y<- factor(y, levels=c(1,0))
+
+accuracy <- vector()
+cutoff <- 1:10
+for(i in cutoff){
+  y_hat <- ifelse(x>i, 1, 0)
+  accuracy[i] <- mean(y==y_hat)
+}
+qplot(y=accuracy)+geom_line()+scale_x_continuous(breaks=1:10)
+
+# Accuracy of 57% 
+y_hat <- ifelse(x>10, 1, 0)
+mean(y==y_hat)
+
+# Confusion matrix for back problems predictions based on backpack weight
+y_hat <- factor(y_hat, levels=c(1,0))
+table(actual = y, predicted = y_hat) %>% addmargins
+
 ```
 
 ```{R}
-# cross-validation of linear classifier here
+library(tidyverse)
+library(dplyr)
+
+# Cross-validation of linear classifier
+set.seed(322)
+k=5
+
+data<-sample_frac(Backpack) #randomly order rows
+folds <- rep(1:k, length.out=nrow(data)) #create folds
+
+diags<-NULL
+
+i=1
+for(i in 1:k){
+# Create training and test sets
+train<-data[folds!=i,] 
+test<-data[folds==i,] 
+truth<-test$BackProblems
+
+# Train model
+fit <- glm(BackProblems==1 ~ BackpackWeight + BodyWeight + Ratio + Year + Units, data=train,family="binomial") ### SPECIFY THE LOGISTIC REGRESSION MODEL FIT TO THE TRAINING SET HERE
+
+# Test model
+probs <- predict(fit, newdata=test, type="response") ### GET PREDICTIONS FROM THE TRAINED MODEL ON THE TEST SET HERE
+
+# Get performance metrics for each fold
+diags<-rbind(diags,class_diag(probs,truth, positive=1))
+}
+
+# Average performance metrics across all folds
+summarize_all(diags,mean)
 ```
 
-Discussion here
+There are no signs of overfitting since the logistic regression model is performing poorly on new predictions given that the area under the curve is 0.66, which is between the cutoffs of 0.6 and 0.7.
+
+For classification, I decided to classify the outcome (no back problems vs. back problems), based on backpack weight. I computed the accuracy by obtaining different cutoffs which I then visualized with the qplot() fuction from ggplot2. I found the optimized cutoff to be 10. I then used this cutoff to find that the best accuracy  for students correctly classified as having back problems based on backpack weight was around 57%.
+
+Looking at the confusion matrix, the Sensitivity/TPR (true positive rate)- proportion of actual positives correctly classified- was 0.625, which meant the FNR (false negative rate) was 0.375. The Specificity/TNR (true negative rate)- proportion of actual negatives correctly classified- was 0.54, which meant the FPR (false positive rate) was 0.46. The precision/PPV (positive predictive value)- proportion of cases predicted positive that are actually positive- was 0.39.
+
+When doing cross-validation on the logistic regression model, there is a real decrease in AUC when predicting out of sample. The AUC went down to 0.58, which means it's performing bad on new predictions.
 
 ### Non-Parametric Classifier
 
 ```{R}
 library(caret)
-# non-parametric classifier code here
+# Non-parametric classifier
+knn_fit <- knn3(BackProblems==1 ~ BackpackWeight + BodyWeight + Ratio + Year + Units, data=Backpack)
+
+# Generate predicted scores/probabilities
+prob_knn <- predict(knn_fit, Backpack)
+
+# Compute classification diagnostics
+class_diag(prob_knn[,2], Backpack$BackProblems==1, positive=1)
+
+# Confusion matrix
+table(truth= factor(Backpack$BackProblems==1, levels=c("TRUE","FALSE")), 
+      prediction = factor(prob_knn[,2]>.5, levels=c("TRUE","FALSE"))) %>% addmargins
+
 ```
 
 ```{R}
-# cross-validation of np classifier here
+# Cross-validation of np classifier
+set.seed(322)
+k=5
+
+data<-sample_frac(Backpack) #randomly order rows
+folds <- rep(1:k, length.out=nrow(data)) #create folds
+
+diags<-NULL
+
+i=1
+for(i in 1:k){
+# Create training and test sets
+train<-data[folds!=i,] 
+test<-data[folds==i,] 
+truth<-test$BackProblems
+
+# Train model
+fit <- knn3(BackProblems==1 ~ BackpackWeight + BodyWeight + Ratio + Year + Units, data=train)### SPECIFY THE KNN MODEL FIT TO THE TRAINING SET HERE
+
+# Test model
+probs <- predict(fit, newdata=test)[,2] ### GET PREDICTIONS FROM THE TRAINED MODEL ON THE TEST SET HERE
+
+# Get performance metrics for each fold
+diags<-rbind(diags,class_diag(probs,truth, positive=1)) 
+}
+
+# Average performance metrics across all folds
+summarize_all(diags,mean)
 ```
 
-Discussion
+There are no signs of overfitting since the AUC in the kNN model isn't at 1 or near it. However, the kNN model is performing good on new predictions given that the area under the curve is 0.84, which is between the cutoffs of 0.8 and 0.9.
+
+Looking at the confusion matrix, the Sensitivity/TPR was 0.53, which meant the FNR was 0.47. The Specificity/TNR was 0.9, which meant the FPR was 0.1. The precision/PPV was 0.71.
+
+When doing cross-validation on the kNN model, there is a significant decrease in the AUC when predicting out of sample. The AUC went down to 0.64, which means it's performing poor on new predictions. The kNN non-parametric model performed the best on new data since even though there was a significant decrease when cross validating, the AUC was still higher compared to the logistic regression model.
 
 
 ### Regression/Numeric Prediction
 
 ```{R}
-# regression model code here
+# Linear regression model
+fit1 <- lm(BackpackWeight~ BodyWeight + Units + Year, data=Backpack) #predict backpack weight from body weight, units, and year
+yhat <- predict(fit1) #predicted backpack weight
+
+ mean((Backpack$BackpackWeight-yhat)^2) #mean squared error (MSE)
 ```
 
 ```{R}
-# cross-validation of regression model here
+# Cross-validation of regression model here
+set.seed(1234)
+k=5 #choose number of folds
+data<-Backpack[sample(nrow(Backpack)),] #randomly order rows
+folds<-cut(seq(1:nrow(Backpack)),breaks=k,labels=F) #create folds
+diags<-NULL
+for(i in 1:k){
+  train<-data[folds!=i,]
+  test<-data[folds==i,]
+  ## Fit linear regression model to training set
+  fit2<-lm(BackpackWeight~ BodyWeight + Units + Year, data=train)
+  ## Get predictions/y-hats on test set (fold i)
+  yhat<-predict(fit2, newdata=test)
+  ## Compute prediction error  (MSE) for fold i
+  diags<-mean((test$BackpackWeight-yhat)^2)
+}
+mean(diags) ## get average MSE across all folds (much higher error)!
 ```
 
-Discussion
+For the linear regression model, the mean squared error was 30.8. With cross-validation of the linear regression model, the mean squared error slightly decreased to 27.8. The model does not seem to show any signs of overfitting since the MSE was lower, not higher, after CV. 
 
 ### Python 
 
 ```{R}
+## R chunk
+
 library(reticulate)
+use_python("/usr/bin/python3", required = F)
+matplotlib <- import("matplotlib")
+matplotlib$use("Agg", force = TRUE)
+
+
+# Mean backpack weight
+averagebpw <- mean(Backpack$BackpackWeight)
+
+# Standard deviation of backpack weight
+stdevbw <- sd(Backpack$BodyWeight)
+
+# Variance of backpack weight
+varbw <- var(Backpack$BodyWeight)
+
+# Did the student with the highest backpack weight have back problems?
+maxbpw <- Backpack %>% filter(BackpackWeight==max(BackpackWeight))
+maxbpw
+
 ```
 
 ```{python}
-# python code here
+## Python chunk
+
+import matplotlib.pyplot as plt
+
+# Read R dataset to Python
+backpack1 = r.Backpack
+
+# Standard deviation of backpack weight
+stdevbpw = backpack1["BackpackWeight"].std()
+
+# Variance of backpack weight
+varbpw = backpack1["BackpackWeight"].var()
+
+# Length of dataset
+length_data = len(backpack1)
+
+# Mean body weight
+avrgbw = backpack1["BodyWeight"].mean()
+
+
+# Scatterplot for body weight and backpack weight
+x = backpack1.BodyWeight
+y = backpack1.BackpackWeight
+
+plt.scatter(x, y)
+plt.xlabel("Body Weight")
+plt.ylabel("Backpack Weight")
+plt.title("Body Weight vs. Backpack Weight")
+plt.show()
+
+# Correlation between body weight and backpack weight
+correlation = backpack1.BodyWeight.corr(backpack1.BackpackWeight)
+print(correlation)
 ```
 
-Discussion
+```{R}
+## R chunk
+library(reticulate)
+use_python("/usr/bin/python3", required = F)
+matplotlib <- import("matplotlib")
+matplotlib$use("Agg", force = TRUE)
+
+# communicate with Python code by showing output
+cat(c(averagebpw,py$stdevbpw,py$varbpw, py$length_data, py$avrgbw, stdevbw, varbw))
+
+
+```
+
+```{python}
+## Python chunk
+
+# Communicate with R code by showing output
+print(r.averagebpw, stdevbpw, varbpw, length_data, avrgbw, r.stdevbw, r.varbw)
+print(r.maxbpw)
+
+```
+
+
+I decided to analyze the 'Backpack' dataset even further by running summary statistics on the variables 'BodyWeight' and 'BackpackWeight'. I used the R reticulate package to run Python code in R. Some of the summary statistics were done in R code and some in Python, but I communicated between them in the same R interface for smooth integration. I found that the average backpack weight was 11.66 pounds and the average body weight to be 153.05. After seeing these summary statistics, I wanted to see if the student with the highest backpack weight had back problems. Looking at the results, the student with the highest backpack weight did not have any back problems which proved my assumptions wrong.
+
+Running the Matplotlob library in Python, I decided to discover the relationship between body weight and backpack weight by visualizing it in a scatterplot. The scatterplot showed that there actually was some kind of relationship between the variables. Investigating even further I found the correlation between the two variables to be 0.189, which is a positive but extremely weak correlation. 
 
 ### Concluding Remarks
 
-Include concluding remarks here, if any
+There were many results from the data mining project that helped me understand the importance of training and testing data for new predictions. The data someone is working with can either be really great at predicting new data, or as I found, very poor. I also understood how to see relationships between groups when clustering data. The importance being that hidden patterns and relationships can be discovered in a dataset that one wouldn't have been able to see otherwise. Findings from data mining, classification, and prediction processes can lead to significant changes that improve upon goals, strategies and research in professional or academic settings.
 
 
 
