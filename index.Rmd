@@ -1,6 +1,6 @@
 ---
-title: 'Project 2: Data Mining, Classification, Prediction'
-author: "SDS322E"
+title: 'Data Mining, Classification, Prediction'
+author: "Alvaro Guevara"
 date: ''
 output:
   html_document:
@@ -44,9 +44,7 @@ class_diag <- function(score, truth, positive, cutoff=.5){
 }
 ```
 
-# Mining, Classification, Prediction
-
-## Alvaro Guevara ag58974
+## Data Mining: College Students, Backpacks and Back Problems 
 
 ### Introduction 
 
