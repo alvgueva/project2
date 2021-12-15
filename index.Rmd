@@ -1,5 +1,5 @@
 ---
-title: 'Data Mining, Classification, Prediction'
+title: 'Data Mining, Classification, Prediction, and Statistical Analysis'
 author: "Alvaro Guevara"
 date: ''
 output:
